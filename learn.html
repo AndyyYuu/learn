@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>监控与可观察性 | Agent Starter Pack 指南</title>
+  <style>
+    body { font-family: Arial, sans-serif; line-height: 1.6; margin: 0; padding: 0; }
+    header, main { padding: 20px; }
+    h1, h2, h3 { color: #1a237e; }
+    nav a { margin-right: 15px; text-decoration: none; color: #1976d2; }
+    .section { margin-bottom: 30px; }
+    .image-container { text-align: center; margin: 20px 0; }
+    img { max-width: 100%; height: auto; }
+    table { border-collapse: collapse; width: 100%; }
+    table, th, td { border: 1px solid #ddd; }
+    th, td { padding: 8px; }
+    th { background: #f4f4f4; }
+  </style>
+</head>
+<body>
+
+<header>
+  <nav>
+    <a href="#">首页</a>
+    <a href="#">指南</a>
+    <a href="#">Remote 模板</a>
+    <a href="#">Agents</a>
+    <a href="#">CLI</a>
+    <a href="#">社区</a>
+  </nav>
+</header>
+
+<main>
+  
+  <section class="section">
+    <h1>监控与可观察性</h1>
+
+    <div class="image-container">
+      <!-- 替换正式图像路径 -->
+      <img src="learn.png" alt="监控流程图" />
+      <p>图：监控流程（需提供图像资源）</p>
+    </div>
+
+    <h2>概览</h2>
+    <p>
+      Agent Starter Pack 提供两种级别的可观察性：
+    </p>
+    <ol>
+      <li>
+        <strong>代理遥测事件（始终启用）</strong>：通过 OpenTelemetry 提供代理运行的跟踪与跨度，并导出到 <strong>Cloud Trace</strong>，
+        用于跟踪代理执行、延迟与系统指标。
+      </li>
+      <li>
+        <strong>提示-响应日志（可配置）</strong>：针对生成式 AI 的遥测功能，
+        捕获模型交互（提示、响应、tokens 使用情况）并导出到：
+        <ul>
+          <li>Google Cloud Storage（JSONL 格式）</li>
+          <li>BigQuery 外部表</li>
+          <li>Cloud Logging（专用日志桶）</li>
+        </ul>
+        默认在本地开发中禁用，而在部署环境中默认启用。
+      </li>
+    </ol>
+    <p>
+      注意：对于 <strong>LangGraph</strong> 模板，仅支持代理遥测事件（Cloud Trace）。
+      由于 SDK 限制（不支持流式响应），不支持提示-响应日志功能。
+    </p>
+  </section>
+
+  <section class="section">
+    <h2>工作原理</h2>
+
+    <h3>代理遥测事件（始终启用）</h3>
+    <p>
+      所有代理模板自动导出使用 OpenTelemetry 的跟踪与跨度到 <strong>Cloud Trace</strong>，  
+      用于分布式跟踪、请求流程和延迟分析。
+    </p>
+    <p>该级别的遥测始终启用，无需任何手动配置。</p>
+
+    <h3>提示-响应日志（可配置）</h3>
+    <p>
+      对于基于 ADK 的代理，可以在文件 <code>app/app_utils/telemetry.py</code> 中配置以下功能：
+    </p>
+    <ul>
+      <li>生成式 AI 事件捕获：记录模型交互、tokens 使用和性能指标</li>
+      <li>上传到 GCS：将遥测数据自动上传到专用 GCS 桶，格式为 JSONL</li>
+      <li>BigQuery 集成：BigQuery 外部表可以通过 SQL 查询遥测数据</li>
+      <li>Cloud Logging：专用日志桶用于存储 GenAI 操作日志，保留期长达 10 年</li>
+      <li>资源归属标签：使用服务命名空间和版本来标记事件，以便过滤分析</li>
+    </ul>
+    <p>
+      默认情况下，提示-响应日志为隐私保护模式：  
+      仅记录元数据（tokens、模型名称、时间等），不包括实际提示或完整响应。
+    </p>
+
+    <h3>不同环境下的默认行为</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>环境</th>
+          <th>默认状态</th>
+          <th>说明</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>本地开发（<code>make playground</code>）</td><td>❌ 禁用</td><td>未设置 <code>LOGS_BUCKET_NAME</code></td></tr>
+        <tr><td>开发（Terraform 部署）</td><td>✅ 启用</td><td>Terraform 设置日志桶和参数</td></tr>
+        <tr><td>暂存（Terraform 部署）</td><td>✅ 启用</td><td>Terraform 设置日志桶和参数</td></tr>
+        <tr><td>生产（Terraform 部署）</td><td>✅ 启用</td><td>Terraform 设置日志桶和参数</td></tr>
+      </tbody>
+    </table>
+
+  </section>
+
+  <section class="section">
+    <h2>在开发环境中测试提示-响应日志</h2>
+
+    <ol>
+      <li>
+        <strong>部署并生成测试流量</strong>  
+        例如通过 <code>make deploy</code> 部署，然后使用代理的 URL 发起测试请求。
+      </li>
+
+      <li>
+        <strong>验证 GCS 上传</strong>  
+        在 GCS 中检查遥测文件是否被写入：
+        <pre>
+gsutil ls gs://${PROJECT_ID}-${PROJECT_NAME}-logs/completions/
+        </pre>
+      </li>
+
+      <li>
+        <strong>验证 Cloud Logging 桶</strong>  
+        检查专用日志桶是否存在：
+        <pre>
+gcloud logging buckets describe ${PROJECT_NAME}-genai-telemetry --location=us-central1 --project=${PROJECT_ID}
+        </pre>
+      </li>
+
+      <li>
+        <strong>在 BigQuery 中查询遥测数据</strong>
+        <pre>
+bq query --use_legacy_sql=false \
+"SELECT * FROM \`${PROJECT_ID}.${PROJECT_NAME}_telemetry.completions\` LIMIT 10"
+        </pre>
+      </li>
+    </ol>
+  </section>
+
+</main>
+
+</body>
+</html>
